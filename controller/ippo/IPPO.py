@@ -25,7 +25,7 @@ import torch.multiprocessing as mp
 mp.set_sharing_strategy('file_system') 
 from torch.multiprocessing import Manager
 def create_environment():
-        return WRSN(scenario_path="physical_env/network/network_scenarios/_30targets_107sensors.yaml",
+        return WRSN(scenario_path="physical_env/network/network_scenarios/_50targets_109sensors.yaml",
                    agent_type_path="physical_env/mc/mc_types/default.yaml",
                    num_agent=3, map_size=100, density_map=True)
 
@@ -613,7 +613,7 @@ def standalone_worker(proc_id, result_queue, actor_states, critic_states, num_ag
     
     # Tạo môi trường mới cho process
     from rl_env.WRSN import WRSN
-    proc_env = WRSN(scenario_path="physical_env/network/network_scenarios/_30targets_107sensors.yaml",
+    proc_env = WRSN(scenario_path="physical_env/network/network_scenarios/_50targets_109sensors.yaml",
                    agent_type_path="physical_env/mc/mc_types/default.yaml",
                    num_agent=num_agent, map_size=100, density_map=True)
     

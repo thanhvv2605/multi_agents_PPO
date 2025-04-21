@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 runs/
 save_model/
+controller/store/
 
 # C extensions
 *.so
