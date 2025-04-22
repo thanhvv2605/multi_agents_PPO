@@ -4,7 +4,7 @@ alg_args:
     "seed": 0
     "lr": 2.0e-4
     "gamma": 0.99
-    "clip": 0.5
+    "clip": 0.2
     "batch_size": 512
     "n_updates_per_iteration": 5
     "save_freq": 20
