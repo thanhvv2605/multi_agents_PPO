@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 runs/
-save_model/
+save_model1/
 controller/store/
 
 # C extensions
