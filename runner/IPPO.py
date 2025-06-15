@@ -21,14 +21,12 @@ if __name__ == "__main__":
     # set spawn 
     multiprocessing.set_start_method('spawn', force=True)
 
-    env = WRSN(scenario_path="physical_env/network/network_scenarios/hanoi1000n50.yaml"
+    env = WRSN(scenario_path="physical_env/network/network_scenarios/50_target_train.yaml"
                 ,agent_type_path="physical_env/mc/mc_types/default.yaml"
                 ,num_agent=3, map_size=100, density_map=True)
 
     with open("alg_args/ippo.yaml", 'r') as file:
         args = yaml.safe_load(file)
     controller = IPPO(args['alg_args'], env=env, device=device)
-    controller.train(100000, save_folder="save_model/ippo_50_target_multi_processes")
-# controller.train(10000, save_folder="save_model/ippo_50_target_multi_threads")
-# controller.train(10000, save_folder="save_model/ippo_30_target_multi_threads")
-# controller.train(10000, save_folder="save_model/ippo_hanoi_50_target_fixed_pro")
+    controller.train(100000, save_folder="save_model/ippo_50")
+

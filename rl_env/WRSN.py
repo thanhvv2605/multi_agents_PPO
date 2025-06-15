@@ -36,6 +36,16 @@ class WRSN(gym.Env):
         self.agents_prev_state = [None for _ in range(num_agent)]
         self.agents_prev_fitness = [None for _ in range(num_agent)]
         self.agents_exclusive_reward = [0 for _ in range(num_agent)]
+        print("fix success")
+
+        # Initialize plot counters and create directories
+        self.agent_plot_counters = {i: 0 for i in range(self.num_agent)}
+        self.base_image_path = "image_visual_heatmap"
+        os.makedirs(self.base_image_path, exist_ok=True)
+        for i in range(self.num_agent):
+            agent_image_path = os.path.join(self.base_image_path, f"agent_{i}")
+            os.makedirs(agent_image_path, exist_ok=True)
+
         self.reset()
 
     def reset(self):
@@ -50,6 +60,9 @@ class WRSN(gym.Env):
         self.moving_time_max = (euclidean(np.array([self.net.frame[0], self.net.frame[2]]), np.array([self.net.frame[1], self.net.frame[3]]))) / self.agent_phy_para["velocity"]
         self.charging_time_max = (self.scenario_io.node_phy_spe["capacity"] - self.scenario_io.node_phy_spe["threshold"]) / (self.agent_phy_para["alpha"] / (self.agent_phy_para["beta"] ** 2))
         self.avg_nodes_agent = (self.net.nodes_density * np.pi * (self.agent_phy_para["charging_range"] ** 2))
+
+        self.agent_plot_counters = {i: 0 for i in range(self.num_agent)}
+
         self.env.run(until=self.warm_up_time)
         if self.net.alive == 1:
             tmp_terminal = False
@@ -152,10 +165,11 @@ class WRSN(gym.Env):
         xx_coor = xx - coor[0]
         yy_coor = yy - coor[1]
         tmp = min((self.net.frame[3] - self.net.frame[2]), (self.net.frame[1] - self.net.frame[0]))
-        hX =  0.5 * tmp / (self.net.frame[1] - self.net.frame[0])
-        hY =  0.5 * tmp / (self.net.frame[3] - self.net.frame[2])
+        hX =  0.2 * tmp / (self.net.frame[1] - self.net.frame[0])
+        hY =  0.2 * tmp / (self.net.frame[3] - self.net.frame[2])
         pdf = (agent.energy / agent.capacity) * func(xx_coor, hX) * func(yy_coor, hY)
         map_2 += pdf
+
 
         map_3 = np.zeros_like(xx)
         for another in self.agents:
@@ -184,7 +198,113 @@ class WRSN(gym.Env):
             hY = another.chargingRange / (self.net.frame[3] - self.net.frame[2])
             pdf = func(xx_coor, hX) * func(yy_coor, hY) * (euclidean(another.location, np.array([another.cur_phy_action[0], agent.cur_phy_action[1]])) / another.velocity) / self.moving_time_max
             map_4 += pdf
-        return np.stack((map_1, map_2, map_3, map_4))
+        
+        epsilon = 1e-9  # Tránh chia cho 0
+        
+        max_map1 = np.max(map_1) if np.max(map_1) > 0 else 1.0
+        max_map2 = np.max(map_2) if np.max(map_2) > 0 else 1.0
+        max_map3 = np.max(map_3) if np.max(map_3) > 0 else 1.0
+        max_map4 = np.max(map_4) if np.max(map_4) > 0 else 1.0
+        
+        map_1_norm = map_1 
+        map_2_norm = map_2 / (max_map2 + epsilon)
+        map_3_norm = map_3 / (max_map3 + epsilon)
+        map_4_norm = map_4 / (max_map4 + epsilon)
+        
+        # Thêm hệ số alpha để điều chỉnh mức độ ảnh hưởng
+        alpha_1 = 1    # Nhu cầu sạc của các node 
+        alpha_2 = 1    # Thông tin về agent hiện tại
+        alpha_3 = 0.7    # Thông tin của các agent đang sạc
+        alpha_4 = 0.7   # Thông tin của các agent đang di chuyển
+        map_1_final = alpha_1 * map_1_norm
+        map_2_final = alpha_2 * map_2_norm
+        map_3_final = alpha_3 * map_3_norm
+        map_4_final = alpha_4 * map_4_norm
+        return np.stack((map_1_final, map_2_final, map_3_final, map_4_final))
+    
+    def get_state(self, agent_id):
+        agent = self.agents[agent_id]
+        unit = 1.0 / self.map_size
+    
+        x = np.arange(unit / 2, 1.0,  unit)
+        y = np.arange(unit / 2, 1.0,  unit)
+        yy, xx = np.meshgrid(x, y)
+        
+        map_1 = np.zeros_like(xx)
+        for node in self.net.listNodes:
+            if node.status == 0: 
+                continue
+            coor = self.down_mapping(node.location)
+            xx_coor = xx - coor[0]
+            yy_coor = yy - coor[1]
+            hX = agent.chargingRange / (self.net.frame[1] - self.net.frame[0])
+            hY = agent.chargingRange / (self.net.frame[3] - self.net.frame[2])
+            pdf = ((node.energyCS / (agent.alpha / (agent.beta ** 2))) / ((node.energy - node.threshold) / (node.capacity - node.threshold))) * func(xx_coor, hX) * func(yy_coor, hY)
+            map_1 += pdf
+
+        map_2 = np.zeros_like(xx)
+        coor = self.down_mapping(agent.location)
+        xx_coor = xx - coor[0]
+        yy_coor = yy - coor[1]
+        tmp = min((self.net.frame[3] - self.net.frame[2]), (self.net.frame[1] - self.net.frame[0]))
+        hX =  0.2 * tmp / (self.net.frame[1] - self.net.frame[0])
+        hY =  0.2 * tmp / (self.net.frame[3] - self.net.frame[2])
+        pdf = (agent.energy / agent.capacity) * func(xx_coor, hX) * func(yy_coor, hY)
+        map_2 += pdf
+
+
+        map_3 = np.zeros_like(xx)
+        for another in self.agents:
+            if another.id == agent.id:
+                continue
+            if another.cur_action_type == "moving":
+                continue
+            coor = self.down_mapping([another.cur_phy_action[0], another.cur_phy_action[1]])
+            xx_coor = xx - coor[0]
+            yy_coor = yy - coor[1]
+            hX = another.chargingRange / (self.net.frame[1] - self.net.frame[0])
+            hY = another.chargingRange / (self.net.frame[3] - self.net.frame[2])
+            pdf = (another.cur_phy_action[2] / self.charging_time_max) * func(xx_coor, hX) * func(yy_coor, hY)
+            map_3 += pdf
+
+        map_4 = np.zeros_like(xx)
+        for another in self.agents:
+            if another.id == agent.id:
+                continue
+            if another.cur_action_type == "charging":
+                continue
+            coor = self.down_mapping([another.cur_phy_action[0], another.cur_phy_action[1]])
+            xx_coor = xx - coor[0]
+            yy_coor = yy - coor[1]
+            hX = another.chargingRange / (self.net.frame[1] - self.net.frame[0])
+            hY = another.chargingRange / (self.net.frame[3] - self.net.frame[2])
+            pdf = func(xx_coor, hX) * func(yy_coor, hY) * (euclidean(another.location, np.array([another.cur_phy_action[0], agent.cur_phy_action[1]])) / another.velocity) / self.moving_time_max
+            map_4 += pdf
+        
+        # Chuẩn hóa từng bản đồ về thang [0,1]
+        epsilon = 1e-9  # Tránh chia cho 0
+        
+        max_map1 = np.max(map_1) if np.max(map_1) > 0 else 1.0
+        max_map2 = np.max(map_2) if np.max(map_2) > 0 else 1.0
+        max_map3 = np.max(map_3) if np.max(map_3) > 0 else 1.0
+        max_map4 = np.max(map_4) if np.max(map_4) > 0 else 1.0
+
+        map_1_norm = map_1 
+        map_2_norm = map_2 / (max_map2 + epsilon)
+        map_3_norm = map_3 / (max_map3 + epsilon)
+        map_4_norm = map_4 / (max_map4 + epsilon)
+        
+        # Thêm hệ số alpha để điều chỉnh mức độ ảnh hưởng
+        alpha_1 = 1    # Nhu cầu sạc của các node 
+        alpha_2 = 1    # Thông tin về agent hiện tại
+        alpha_3 = 0.7    # Thông tin của các agent đang sạc
+        alpha_4 = 0.7   # Thông tin của các agent đang di chuyển
+
+        map_1_final = alpha_1 * map_1_norm
+        map_2_final = alpha_2 * map_2_norm
+        map_3_final = alpha_3 * map_3_norm
+        map_4_final = alpha_4 * map_4_norm
+        return np.stack((map_1_final, map_2_final, map_3_final, map_4_final))
     
     def get_network_fitness(self):
         node_t = [-1 for node in self.net.listNodes]

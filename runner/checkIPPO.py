@@ -5,7 +5,6 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from controller.random.RandomController import RandomController
 from rl_env.WRSN import WRSN
 from utils import draw_heatmap_state
 from controller.ippo.IPPO import IPPO
@@ -23,7 +22,7 @@ def log(net, mcs):
             print(net.env.now)
         yield net.env.timeout(1.0)
 
-list_map = ["_30targets_107sensors","_40targets_52sensors", "_50targets_109sensors"]
+list_map = ["hanoi_50", "hanoi_100", "hanoi_150", "hanoi_200"]
 
 list_result = []
 for map in list_map:
@@ -43,8 +42,7 @@ for map in list_map:
 
     for i in range(1,41):
         iteration_ckpt = i
-        # iteration_ckpt = "best"
-        path = f"save_model/ippo_50_target/{iteration_ckpt}"
+        path = f"save_model/ippo_50/{iteration_ckpt}"
         controller = IPPO(args['alg_args'], env=network, device=device, model_path=path)
         print("Iteration training:", iteration_ckpt )
         request = network.reset()
@@ -72,9 +70,6 @@ for map in list_map:
     # Luu vao file json 
     if not os.path.exists("result/ippo_50_target"):
         os.makedirs("result/ippo_50_target") 
-    # Ensure the file directory exists
-
-    # Save the results to a JSON file
     with open(f"result/ippo_50_target/{map}.json", 'w') as f:
         json.dump(results, f)
 

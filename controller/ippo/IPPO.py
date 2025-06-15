@@ -7,25 +7,25 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
-from controller.ppo.actor.UnetActor import UNet
-from controller.ppo.critic.CNNCritic import CNNCritic
-import copy
+from controller.ippo.actor.UnetActor import UNet
+from controller.ippo.critic.CNNCritic import CNNCritic
+
 import shutil
 import csv
 from rl_env.WRSN import WRSN
-import threading
 import time
 import threading
 import queue
 import copy
-
+from torch.multiprocessing import Process
+import os
 import csv
 from torch.multiprocessing import Queue, Process, set_start_method, Manager
 import torch.multiprocessing as mp
 mp.set_sharing_strategy('file_system') 
 from torch.multiprocessing import Manager
 def create_environment():
-        return WRSN(scenario_path="physical_env/network/network_scenarios/hanoi1000n50.yaml",
+        return WRSN(scenario_path="physical_env/network/network_scenarios/50_target_train.yaml",
                    agent_type_path="physical_env/mc/mc_types/default.yaml",
                    num_agent=3, map_size=100, density_map=True)
 
@@ -112,19 +112,9 @@ class IPPO:
             return returns, advantages, values
     
     def get_action(self, agent_id, state_in):
-        # state_in = np.zeros((4, 100, 100))
-        # # Kiểm tra dữ liệu
-        print("Shape:", state_in.shape)
-        print("Type:", state_in.dtype)
-        state = torch.from_numpy(state_in).to(torch.float32)
-        print("Shape 1:", state_in.shape)
-        print("Type 1:", state_in.dtype)
-
-        print("2")
+        state = torch.FloatTensor(state_in).to(self.device)
         if state.ndim == 3:
             state = torch.unsqueeze(state, dim=0)
-        print("3")
-
         mean, log_std = self.actors[agent_id](state)
         std = log_std.exp()
         dist = Normal(mean, std)
@@ -209,7 +199,7 @@ class IPPO:
             optimizer_state_dicts = [self.optimizers[id].state_dict() for id in range(self.num_agent)]
             
             checkpoint = {
-                'iteration': i_so_far,  # Lưu iteration hiện tại (đã hoàn thành)
+                'iteration': i_so_far,  
                 't_so_far': t_so_far,
                 'actor_state_dicts': actor_state_dicts,
                 'critic_state_dicts': critic_state_dicts,
@@ -461,49 +451,6 @@ class IPPO:
         # Đợi tất cả các process hoàn thành
         for p in processes:
             p.join()
-        
-            # all_results = []
-            # for _ in range(num_processes):
-            #     try:
-            #         result = result_queue.get(timeout=300)  # Thêm timeout để tránh chờ vô hạn
-            #         if result is not None:  # Kiểm tra trường hợp worker báo lỗi
-            #             all_results.append(result)
-            #     except Exception as e:
-            #         print(f"Lỗi khi nhận kết quả từ queue: {e}")
-            
-            # # Kết hợp kết quả từ tất cả các process
-            # combined_batch_states = [[] for _ in range(self.num_agent)]
-            # combined_batch_actions = [[] for _ in range(self.num_agent)]
-            # combined_batch_log_probs = [[] for _ in range(self.num_agent)]
-            # combined_batch_rewards = [[] for _ in range(self.num_agent)]
-            # combined_batch_next_states = [[] for _ in range(self.num_agent)]
-            # combined_batch_advantages = [[] for _ in range(self.num_agent)]
-            # combined_batch_returns = [[] for _ in range(self.num_agent)]
-            # combined_batch_values = [[] for _ in range(self.num_agent)]
-            
-            # for result in all_results:
-            #     batch_states, batch_actions, batch_log_probs, batch_rewards, batch_next_states, batch_advantages, batch_returns, batch_values = result
-                
-            #     for id in range(self.num_agent):
-            #         if len(batch_rewards[id]) > 0:
-            #             # Chuyển list thành tensor ở process chính
-            #             states_tensor = torch.FloatTensor(np.array(batch_states[id])).to(self.device)
-            #             actions_tensor = torch.FloatTensor(np.array(batch_actions[id])).to(self.device)
-            #             log_probs_tensor = torch.FloatTensor(np.array(batch_log_probs[id])).to(self.device)
-            #             rewards_tensor = torch.FloatTensor(np.array(batch_rewards[id])).to(self.device)
-            #             next_states_tensor = torch.FloatTensor(np.array(batch_next_states[id])).to(self.device)
-            #             advantages_tensor = torch.FloatTensor(np.array(batch_advantages[id])).to(self.device)
-            #             returns_tensor = torch.FloatTensor(np.array(batch_returns[id])).to(self.device)
-            #             values_tensor = torch.FloatTensor(np.array(batch_values[id])).to(self.device)
-                        
-            #             combined_batch_states[id].append(states_tensor)
-            #             combined_batch_actions[id].append(actions_tensor)
-            #             combined_batch_log_probs[id].append(log_probs_tensor)
-            #             combined_batch_rewards[id].append(rewards_tensor)
-            #             combined_batch_next_states[id].append(next_states_tensor)
-            #             combined_batch_advantages[id].append(advantages_tensor)
-            #             combined_batch_returns[id].append(returns_tensor)
-            #             combined_batch_values[id].append(values_tensor)
             # Thu thập kết quả
             all_results = list(result_list)
             
@@ -584,42 +531,24 @@ class IPPO:
             final_batch_values
         )
 
-
-    
-
-
-
-import torch.multiprocessing as mp
-from torch.multiprocessing import Process
-import os
-
 def standalone_worker(proc_id, result_queue, actor_states, critic_states, num_agent, batch_size, 
                      num_processes, gamma, gae_lambda, gae, device):
-    """Worker function that runs independently in each process."""
-    import numpy as np
-    import torch
-    import csv
-    from torch.distributions.normal import Normal
-    import copy
-    # create random seed for each process 
-    # Tạo seed ngẫu nhiên cho mỗi process
+
     seed = np.random.randint(0, 10000)
 
     process_random = np.random.default_rng(seed)
-    
-    # Tạo file log riêng cho process này
     proc_file_log = open(f"log_process_{proc_id}.csv", "w", newline='')
     proc_writer_log = csv.writer(proc_file_log)
     
     # Tạo môi trường mới cho process
     from rl_env.WRSN import WRSN
-    proc_env = WRSN(scenario_path="physical_env/network/network_scenarios/hanoi1000n50.yaml",
+    proc_env = WRSN(scenario_path="physical_env/network/network_scenarios/50_target_train.yaml",
                    agent_type_path="physical_env/mc/mc_types/default.yaml",
                    num_agent=num_agent, map_size=100, density_map=True)
     
     # Tạo bản sao của mô hình cho process này
-    from controller.ppo.actor.UnetActor import UNet
-    from controller.ppo.critic.CNNCritic import CNNCritic
+    from controller.ippo.actor.UnetActor import UNet
+    from controller.ippo.critic.CNNCritic import CNNCritic
     
     proc_actors = []
     proc_critics = []
